@@ -28,17 +28,17 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      # Launch crash test (Robolectric): reproduces the reported
-      # "app exits by itself right after opening" on the JVM and fails
-      # with the real stack trace if anything in the launch path throws.
-      - name: Run launch crash test
-        run: ./gradlew :app:testDebugUnitTest --tests "com.ayan.agent.LaunchCrashTest" --stacktrace
+      # Unit tests (Robolectric): launch crash test + setup fix test.
+      # They reproduce the reported failures on the JVM and fail with the
+      # real stack trace if anything in those paths throws.
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --tests "com.ayan.agent.*" --stacktrace
 
       - name: Upload test results (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: launch-test-results
+          name: test-results
           path: |
             app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/testDebugUnitTest/

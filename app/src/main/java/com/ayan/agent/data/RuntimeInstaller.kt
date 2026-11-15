@@ -24,18 +24,39 @@ object Runtimes {
 enum class InstallState { NOT_INSTALLED, INSTALLING, DONE, FAILED }
 
 /**
+ * Why an install can fail. NO_PKG_MANAGER is the common case on a normal
+ * phone: `pkg` is Termux's package manager and it simply does not exist
+ * outside Termux, so `pkg install ...` can never succeed there. The Setup
+ * screen must tell the user that plainly (and offer Skip) instead of
+ * showing a generic "failed — retry" for every runtime.
+ */
+enum class InstallResult { OK, FAILED, NO_PKG_MANAGER }
+
+/**
  * Runs the install command in the phone runtime shell and streams output.
- * Returns true only when the command exits with code 0.
- * If the Termux `pkg` tool is missing the install fails with a clear error
- * and the Setup screen offers Retry.
+ * First checks whether the Termux `pkg` tool exists at all; if it does not,
+ * returns NO_PKG_MANAGER without pretending to install anything.
  */
 class RuntimeInstaller {
+
+    suspend fun hasPkgManager(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            ProcessBuilder("sh", "-c", "command -v pkg")
+                .redirectErrorStream(true)
+                .start()
+                .waitFor() == 0
+        }.getOrDefault(false)
+    }
 
     suspend fun install(
         item: RuntimeItem,
         onOutput: (String) -> Unit,
         onProgress: (Float) -> Unit
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): InstallResult = withContext(Dispatchers.IO) {
+        if (!hasPkgManager()) {
+            onOutput("এই ফোনে Termux নেই — `pkg` পাওয়া যায়নি, তাই ইনস্টল করা যাবে না।")
+            return@withContext InstallResult.NO_PKG_MANAGER
+        }
         try {
             onOutput("$ ${item.installCommand}")
             val process = ProcessBuilder("sh", "-c", item.installCommand)
@@ -52,10 +73,10 @@ class RuntimeInstaller {
             }
             val code = process.waitFor()
             onProgress(1f)
-            code == 0
+            if (code == 0) InstallResult.OK else InstallResult.FAILED
         } catch (e: Exception) {
             onOutput("Error: ${e.message}")
-            false
+            InstallResult.FAILED
         }
     }
 }

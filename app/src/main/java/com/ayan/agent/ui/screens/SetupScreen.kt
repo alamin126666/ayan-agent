@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ayan.agent.data.InstallResult
 import com.ayan.agent.data.InstallState
 import com.ayan.agent.data.RuntimeInstaller
 import com.ayan.agent.data.RuntimeItem
@@ -55,6 +57,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _allDone = MutableStateFlow(false)
     val allDone = _allDone.asStateFlow()
+
+    /** True when this phone has no `pkg` (no Termux), so no runtime can install here. */
+    var pkgMissing by mutableStateOf(false)
+        private set
 
     private var installing by mutableStateOf(false)
 
@@ -82,16 +88,39 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { installOne(item) }
     }
 
+    /**
+     * Skip setup: the Chat agent works fully without local runtimes (it
+     * talks to the provider API over the internet). Only the Terminal's
+     * local commands need Python/PHP/Java/Kotlin on the phone.
+     */
+    fun skipSetup() {
+        if (installing) return
+        viewModelScope.launch {
+            store.setSetupDone(true)
+            _allDone.value = true
+        }
+    }
+
     private suspend fun installOne(item: RuntimeItem) {
         states[item.id] = InstallState.INSTALLING
         progress[item.id] = 0f
-        val ok = installer.install(
-            item,
-            onOutput = { log.add(it) },
-            onProgress = { progress[item.id] = it }
-        )
-        states[item.id] = if (ok) InstallState.DONE else InstallState.FAILED
-        if (ok) progress[item.id] = 1f
+        when (
+            installer.install(
+                item,
+                onOutput = { log.add(it) },
+                onProgress = { progress[item.id] = it }
+            )
+        ) {
+            InstallResult.OK -> {
+                states[item.id] = InstallState.DONE
+                progress[item.id] = 1f
+            }
+            InstallResult.NO_PKG_MANAGER -> {
+                pkgMissing = true
+                states[item.id] = InstallState.FAILED
+            }
+            InstallResult.FAILED -> states[item.id] = InstallState.FAILED
+        }
     }
 }
 
@@ -121,6 +150,14 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (vm.pkgMissing) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "এই ফোনে Termux ইনস্টল নেই, তাই `pkg` দিয়ে টুল ইনস্টল হবে না। চ্যাট এজেন্ট চালাতে এগুলো লাগবে না — নিচে \"এড়িয়ে যান\" চাপলে সরাসরি Home-এ যাওয়া যাবে।",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
         Spacer(modifier = Modifier.height(16.dp))
 
         LazyColumn(
@@ -153,6 +190,13 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("সব ইনস্টল করুন")
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { vm.skipSetup() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("এড়িয়ে যান — পরে করবো")
         }
     }
 }

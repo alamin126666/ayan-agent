@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app UI itself is drawn with Jetpack Compose (AyanAgentTheme).
+         This XML theme is the Android window theme the Manifest points to:
+         it must exist for AAPT resource linking, and stays light (no dark mode, PRD v0.3). -->
+    <style name="Theme.AyanAgent" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/purple_primary</item>
+        <item name="colorPrimaryVariant">@color/purple_deep</item>
+        <item name="colorOnPrimary">@color/white_base</item>
+        <item name="colorSecondary">@color/purple_light</item>
+        <item name="colorSecondaryVariant">@color/purple_light</item>
+        <item name="android:colorBackground">@color/white_base</item>
+        <item name="android:windowBackground">@color/white_base</item>
+        <item name="android:statusBarColor">@color/white_base</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

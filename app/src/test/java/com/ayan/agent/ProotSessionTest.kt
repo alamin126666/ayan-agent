@@ -17,8 +17,9 @@ import org.robolectric.annotation.Config
  * Step 3 of the real Termux runtime: proot argv + guest env.
  * Pure logic — no proot binary or device is needed for these tests.
  * The argv must match proot-distro's canonical termux-type login:
- * rootfs + binds for usr/home, login as the inner command, and
- * NO fake-root / link2symlink flags (a Termux guest runs as the app UID).
+ * the prefix is a real subtree of the rootfs (never bound in), login
+ * as the inner command, and NO fake-root / link2symlink flags
+ * (a Termux guest runs as the app UID).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -26,15 +27,15 @@ class ProotSessionTest {
 
     private fun filesDir(): File {
         val root = Files.createTempDirectory("proot-test").toFile()
-        File(root, "usr/bin").mkdirs()
-        File(root, "usr/bin/login").writeText("x")
-        File(root, "usr/bin/bash").writeText("x")
-        File(root, "home").mkdirs()
+        File(root, "data/data/com.termux/files/usr/bin").mkdirs()
+        File(root, "data/data/com.termux/files/usr/bin/login").writeText("x")
+        File(root, "data/data/com.termux/files/usr/bin/bash").writeText("x")
+        File(root, "data/data/com.termux/files/home").mkdirs()
         return root
     }
 
     @Test
-    fun argvUsesLoginAndBindsUsrAndHome() {
+    fun argvUsesLoginAndNeverBindsPrefixOrHome() {
         val files = filesDir()
         val proot = File(files, "proot")
         val argv = ProotSession.buildArgv(files, proot, "pkg install -y python")
@@ -45,11 +46,14 @@ class ProotSessionTest {
         assertTrue(argv.contains("-L"))
         assertTrue(argv.contains("--rootfs=${files.absolutePath}"))
         assertTrue(argv.contains("--cwd=/data/data/com.termux/files/home"))
-        assertTrue(argv.contains("--bind=${File(files, "usr").absolutePath}:/data/data/com.termux/files/usr"))
-        assertTrue(argv.contains("--bind=${File(files, "home").absolutePath}:/data/data/com.termux/files/home"))
         assertTrue(argv.contains("--bind=/dev"))
         assertTrue(argv.contains("--bind=/proc"))
         assertTrue(argv.contains("--bind=/sys"))
+        assertTrue(argv.contains("--bind=/system"))
+        // The prefix and home are real subtrees of the rootfs — binding
+        // them in broke proot's interpreter lookup on a real phone.
+        assertFalse(argv.any { it.endsWith(":/data/data/com.termux/files/usr") })
+        assertFalse(argv.any { it.endsWith(":/data/data/com.termux/files/home") })
         // Inner command: the bootstrap's own login, with the pkg command.
         val loginIdx = argv.indexOf("/data/data/com.termux/files/usr/bin/login")
         assertTrue(loginIdx > 0)
@@ -68,7 +72,7 @@ class ProotSessionTest {
     @Test
     fun argvFallsBackToBashWhenLoginMissing() {
         val files = filesDir()
-        File(files, "usr/bin/login").delete()
+        File(files, "data/data/com.termux/files/usr/bin/login").delete()
         val argv = ProotSession.buildArgv(files, File("/tmp/proot"), null)
         assertTrue(argv.contains("/data/data/com.termux/files/usr/bin/bash"))
         assertTrue(argv.contains("--login"))
@@ -138,10 +142,10 @@ class ProotSessionTest {
         val filesDir = context.filesDir
         assertTrue(File(filesDir, "proot-shm").isDirectory)
         assertTrue(File(filesDir, "proot-tmp").isDirectory)
-        assertTrue(File(filesDir, "usr/tmp").isDirectory)
-        assertTrue(File(filesDir, "home").isDirectory)
+        assertTrue(File(filesDir, "data/data/com.termux/files/usr/tmp").isDirectory)
+        assertTrue(File(filesDir, "data/data/com.termux/files/home").isDirectory)
         assertTrue(File(filesDir, "data/data/com.termux/files/cache").isDirectory)
-        val resolv = File(filesDir, "usr/etc/resolv.conf")
+        val resolv = File(filesDir, "data/data/com.termux/files/usr/etc/resolv.conf")
         assertTrue(resolv.exists())
         // No active network under Robolectric, so the public fallback is used.
         assertTrue(resolv.readText().contains("nameserver 8.8.8.8"))

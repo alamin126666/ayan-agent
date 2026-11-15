@@ -60,8 +60,31 @@ class TermuxBootstrapTest {
     fun isInstalledChecksUsrBinBash() {
         val root = Files.createTempDirectory("bootstrap-test2").toFile()
         assertFalse(TermuxBootstrap.isInstalled(root))
+        File(root, "data/data/com.termux/files/usr/bin").mkdirs()
+        File(root, "data/data/com.termux/files/usr/bin/bash").writeText("x")
+        assertTrue(TermuxBootstrap.isInstalled(root))
+    }
+
+    @Test
+    fun migrateLayoutMovesOldInstallWithoutRedownload() {
+        val root = Files.createTempDirectory("bootstrap-migrate").toFile()
+        // Old layout: usr/ + home/ at the files-dir root.
         File(root, "usr/bin").mkdirs()
         File(root, "usr/bin/bash").writeText("x")
+        File(root, "home").mkdirs()
+        File(root, "home/.keep").writeText("y")
+        File(root, "usr-staging").mkdirs()
+
+        TermuxBootstrap.migrateLayout(root)
+
+        assertTrue(TermuxBootstrap.isInstalled(root))
+        assertTrue(File(root, "data/data/com.termux/files/usr/bin/bash").exists())
+        assertTrue(File(root, "data/data/com.termux/files/home/.keep").exists())
+        assertFalse(File(root, "usr").exists())
+        assertFalse(File(root, "home").exists())
+        assertFalse(File(root, "usr-staging").exists())
+        // Second call is a no-op.
+        TermuxBootstrap.migrateLayout(root)
         assertTrue(TermuxBootstrap.isInstalled(root))
     }
 

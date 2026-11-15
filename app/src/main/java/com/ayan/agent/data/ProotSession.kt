@@ -20,6 +20,11 @@ import kotlinx.coroutines.withContext
  * The command line follows proot-distro's canonical "termux-type" login
  * (proot-distro is GPL-3.0; only its argument construction is followed here,
  * no code is copied):
+ *  - the prefix lives as a REAL subtree of the rootfs at
+ *    `data/data/com.termux/files/usr` (and home at `.../files/home`) —
+ *    it is NOT bound in. Binding it from inside the rootfs broke
+ *    proot's interpreter lookup ("the program is an ELF but its
+ *    interpreter was not found" — seen on Alamin's phone 2026-11-15);
  *  - inner command is the bootstrap's own `usr/bin/login` (falls back to
  *    `usr/bin/bash --login` if login is missing from the bootstrap),
  *  - NO `-0` / `--change-id` and NO `--link2symlink` for a Termux guest —
@@ -114,12 +119,13 @@ object ProotSession {
      */
     fun prepareGuestFiles(context: Context) {
         val filesDir = context.filesDir
+        TermuxBootstrap.migrateLayout(filesDir)
         File(filesDir, "proot-shm").mkdirs()
         File(filesDir, "proot-tmp").mkdirs()
-        File(filesDir, "usr/tmp").mkdirs()
-        File(filesDir, "home").mkdirs()
+        File(TermuxBootstrap.prefixDir(filesDir), "tmp").mkdirs()
+        TermuxBootstrap.homeDir(filesDir).mkdirs()
         File(filesDir, "data/data/com.termux/files/cache").mkdirs()
-        val resolv = File(filesDir, "usr/etc/resolv.conf")
+        val resolv = File(TermuxBootstrap.prefixDir(filesDir), "etc/resolv.conf")
         if (!resolv.exists() || resolv.length() == 0L) {
             runCatching {
                 resolv.parentFile?.mkdirs()
@@ -202,12 +208,12 @@ object ProotSession {
             "--bind=/storage",
             "--bind=/apex",
             "--bind=/system",
-            "--bind=/vendor",
-            "--bind=${File(filesDir, "usr").absolutePath}:$p/usr",
-            "--bind=${File(filesDir, "home").absolutePath}:$p/home"
+            "--bind=/vendor"
+            // NOTE: no binds for $PREFIX or $HOME — they are real subtrees
+            // of the rootfs (see class doc); binding them broke proot.
         )
         for ((host, guest) in extraBinds) argv.add("--bind=$host:$guest")
-        val login = File(filesDir, "usr/bin/login")
+        val login = File(TermuxBootstrap.prefixDir(filesDir), "bin/login")
         if (login.exists()) {
             argv.add("$p/usr/bin/login")
         } else {

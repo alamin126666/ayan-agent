@@ -19,7 +19,11 @@ import kotlinx.coroutines.withContext
  *
  * The bootstrap zip (~30 MB per CPU arch) comes from the termux-packages
  * releases and is verified by SHA-256 before extraction. It is installed
- * into the app's private files dir as `usr/` (the Termux $PREFIX).
+ * into the app's private files dir as `data/data/com.termux/files/usr`
+ * (the real Termux $PREFIX path, as a real subtree of the rootfs) —
+ * exactly proot-distro's "termux-type" layout. That matters: binding the
+ * prefix in from elsewhere broke proot's interpreter lookup, so the
+ * prefix now lives where the guest expects it, with no bind at all.
  *
  * NOTE: the stock bootstrap binaries have `/data/data/com.termux/files/usr`
  * hardcoded at compile time, so they cannot run directly under this app's
@@ -57,14 +61,41 @@ object TermuxBootstrap {
         Build.SUPPORTED_ABIS.firstNotNullOfOrNull { archForAbi(it) }
 
     /** $PREFIX — where the bootstrap lives inside this app's private files. */
-    fun prefixDir(filesDir: File): File = File(filesDir, "usr")
+    fun prefixDir(filesDir: File): File =
+        File(filesDir, "data/data/com.termux/files/usr")
 
-    fun stagingDir(filesDir: File): File = File(filesDir, "usr-staging")
+    fun stagingDir(filesDir: File): File =
+        File(filesDir, "data/data/com.termux/files/usr-staging")
 
-    fun homeDir(filesDir: File): File = File(filesDir, "home")
+    fun homeDir(filesDir: File): File =
+        File(filesDir, "data/data/com.termux/files/home")
 
     fun isInstalled(filesDir: File): Boolean =
         File(prefixDir(filesDir), "bin/bash").exists()
+
+    /**
+     * Moves an already-installed bootstrap from the old layout
+     * (`usr/` + `home/` at the files-dir root) into the new real-subtree
+     * layout, so a phone that already downloaded the ~30 MB bootstrap
+     * does not have to download it again. No-op when there is nothing
+     * to move. A rename inside one files dir is a single syscall.
+     */
+    fun migrateLayout(filesDir: File) {
+        val newPrefix = prefixDir(filesDir)
+        val oldPrefix = File(filesDir, "usr")
+        if (oldPrefix.exists() && !newPrefix.exists()) {
+            newPrefix.parentFile?.mkdirs()
+            oldPrefix.renameTo(newPrefix)
+        }
+        val newHome = homeDir(filesDir)
+        val oldHome = File(filesDir, "home")
+        if (oldHome.exists() && !newHome.exists()) {
+            newHome.parentFile?.mkdirs()
+            oldHome.renameTo(newHome)
+        }
+        // Leftover staging dir from the old layout (never the new one).
+        File(filesDir, "usr-staging").deleteRecursively()
+    }
 
     /**
      * Downloads (if needed) and installs the bootstrap for this device.
@@ -78,6 +109,7 @@ object TermuxBootstrap {
         onLog: (String) -> Unit
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            migrateLayout(filesDir)
             if (isInstalled(filesDir)) {
                 onLog("Termux runtime already installed.")
                 return@withContext true

@@ -32,6 +32,17 @@ jobs:
           echo "y" | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> $GITHUB_ENV
 
+      # Cache the proot/talloc source archives: download.samba.org 504'd
+      # on 2026-11-15 and killed the build, so a once-downloaded archive
+      # is reused instead of re-fetching it on every run.
+      - name: Cache proot sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/proot/talloc.tar.gz
+            build/proot/proot.zip
+          key: proot-sources-${{ hashFiles('tools/build-proot.sh') }}
+
       # proot (Termux fork, GPL-2.0): builds the static proot binary for
       # arm64-v8a + x86_64 into app/src/main/jniLibs/ so the APK ships it.
       # It is what lets the Termux bootstrap run under this app's package

@@ -62,7 +62,13 @@ mkdir -p "$work"
 cd "$work"
 
 fetch() { # url sha256 output
-    if [ ! -f "$3" ]; then curl -fsSL -o "$3.part" "$1" && mv "$3.part" "$3"; fi
+    # download.samba.org 504'd on 2026-11-15 and killed two CI runs, so
+    # retry transient failures (5xx etc.) instead of failing at once.
+    # The checksum below still verifies whatever was downloaded.
+    if [ ! -f "$3" ]; then
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 \
+             --retry-max-time 600 -o "$3.part" "$1" && mv "$3.part" "$3"
+    fi
     echo "$2  $3" | sha256sum -c - >/dev/null || { echo "checksum mismatch: $3" >&2; exit 1; }
 }
 

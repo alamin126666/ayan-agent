@@ -55,7 +55,8 @@ object AgentShell {
             }
             return ProotSession.runCommand(context, guestCommand, onOutput, binds)
         }
-        try {
+        // Block-body function: the result needs an explicit return.
+        return try {
             onOutput("$ $command  (host shell — Termux runtime not installed)")
             val process = ProcessBuilder("sh", "-c", command)
                 .apply { projectDir?.let { directory(it) } }

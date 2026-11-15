@@ -106,8 +106,11 @@ public class TerminalBitmap {
     private static int initMaxBitmapSize() {
         // Synced with `RecordingCanvas.MAX_BITMAP_SIZE`.
         // - https://cs.android.com/android/platform/superproject/+/android-16.0.0_r1:frameworks/base/graphics/java/android/graphics/RecordingCanvas.java;l=42-50
+        // AYAN AGENT PATCH: Termux 0.118.0 uses VANILLA_ICE_CREAM (API 35),
+        // which does not exist when compiling with compileSdk 34. 35 is the
+        // numeric value of Build.VERSION_CODES.VANILLA_ICE_CREAM.
         int defaultSize =
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM ?
+                Build.VERSION.SDK_INT >= 35 ?
                     150 * 1024 * 1024 : // 150 MB
                     100 * 1024 * 1024;  // 100 MB
 

@@ -152,6 +152,24 @@ class ProotSessionTest {
     }
 
     @Test
+    fun guestEnvSetsProotLoaderWhenGiven() {
+        val loader = File("/data/app/lib/arm64/libproot_loader.so")
+        val env = ProotSession.guestEnv(filesDir(), loader)
+        assertEquals(loader.absolutePath, env["PROOT_LOADER"])
+        // Without a loader path proot extracts its own (old behaviour).
+        assertFalse(ProotSession.guestEnv(filesDir()).containsKey("PROOT_LOADER"))
+    }
+
+    @Test
+    fun terminalSessionConfigPassesProotLoaderThrough() {
+        val files = filesDir()
+        val loader = File("/data/app/lib/arm64/libproot_loader.so")
+        val config = ProotSession.terminalSessionConfig(files, File(files, "proot"), loader)
+        assertTrue(config != null)
+        assertTrue(config!!.env.contains("PROOT_LOADER=${loader.absolutePath}"))
+    }
+
+    @Test
     fun guestEnvHasTermuxPathsAndNoLoaderVars() {
         val env = ProotSession.guestEnv(filesDir())
         assertEquals("/data/data/com.termux/files/usr", env["PREFIX"])

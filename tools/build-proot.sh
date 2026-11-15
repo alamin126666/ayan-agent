@@ -8,6 +8,11 @@
 # files/usr to that path inside the proot namespace. No root required.
 # The output is a single self-contained executable per ABI, with talloc linked
 # in statically, dropped into app/src/main/jniLibs/<abi>/libproot_exec.so.
+# The loader (src/loader/loader — static, freestanding, no libc) is shipped
+# alongside as libproot_loader.so: proot normally extracts it to
+# PROOT_TMP_DIR and execs it from there, but Android 10+ refuses to execute
+# files an app wrote into its own data dir, so the loader must come from
+# the native lib dir (where exec is allowed) via the PROOT_LOADER env var.
 #
 # Sources, both GPL-2.0-or-later, both fetched with their checksum verified:
 #
@@ -160,8 +165,13 @@ build_abi() { # abi triple
     mkdir -p "$out_root/$abi"
     "$toolchain/llvm-strip" "proot-$PROOT_VERSION/src/proot" \
         -o "$out_root/$abi/libproot_exec.so"
+    # The loader must be copied BEFORE `make clean` deletes it. It is the
+    # same static binary proot embeds and extracts at runtime — shipping
+    # it as a native lib lets PROOT_LOADER point at the lib dir instead.
+    "$toolchain/llvm-strip" "proot-$PROOT_VERSION/src/loader/loader" \
+        -o "$out_root/$abi/libproot_loader.so"
     make -C "proot-$PROOT_VERSION/src" clean >/dev/null 2>&1 || true
-    ls -l "$out_root/$abi/libproot_exec.so"
+    ls -l "$out_root/$abi/libproot_exec.so" "$out_root/$abi/libproot_loader.so"
 }
 
 build_abi arm64-v8a aarch64-linux-android
@@ -169,4 +179,5 @@ build_abi x86_64 x86_64-linux-android
 
 echo
 echo "proot $PROOT_VERSION built for both ABIs into app/src/main/jniLibs/."
+echo "Each ABI ships libproot_exec.so (proot) + libproot_loader.so (loader)."
 echo "Both are GPL-2.0-or-later; see THIRD_PARTY_NOTICES.md for the source offer."

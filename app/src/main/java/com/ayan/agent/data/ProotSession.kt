@@ -105,6 +105,21 @@ object ProotSession {
         }
     }
 
+    /**
+     * The proot loader, shipped as a native lib (see tools/build-proot.sh).
+     * proot normally extracts its built-in loader to PROOT_TMP_DIR and
+     * execs it from there — but Android 10+ refuses to execute files an
+     * app wrote into its own data dir, so the loader execve fails with
+     * EACCES ("Permission denied"). The loader lives in the native lib
+     * dir instead, where exec is allowed, and PROOT_LOADER points at it.
+     * Null when the lib is missing (older installs fall back to proot's
+     * own extraction, which works on pre-Android-10 devices).
+     */
+    fun loaderPath(context: Context): File? {
+        val loader = File(context.applicationInfo.nativeLibraryDir, "libproot_loader.so")
+        return if (loader.exists() && loader.canExecute()) loader else null
+    }
+
     fun isAvailable(context: Context): Boolean =
         installedBinary(context) != null &&
             TermuxBootstrap.isInstalled(context.filesDir)
@@ -148,7 +163,7 @@ object ProotSession {
     }
 
     /** Environment for the guest (used both for ProcessBuilder and TerminalSession). */
-    fun guestEnv(filesDir: File): Map<String, String> {
+    fun guestEnv(filesDir: File, loaderPath: File? = null): Map<String, String> {
         val env = mutableMapOf(
             "HOME" to "$GUEST_PREFIX/home",
             "PATH" to "$GUEST_PREFIX/usr/bin",
@@ -162,6 +177,10 @@ object ProotSession {
             // "can't create temporary directory" before any bind happens.
             "PROOT_TMP_DIR" to File(filesDir, "proot-tmp").absolutePath
         )
+        // Point proot at the loader in the native lib dir (see loaderPath).
+        // Without this it extracts the loader into PROOT_TMP_DIR and the
+        // execve is denied on Android 10+.
+        if (loaderPath != null) env["PROOT_LOADER"] = loaderPath.absolutePath
         for (key in PASSTHROUGH_ENV) {
             System.getenv(key)?.let { env[key] = it }
         }
@@ -243,7 +262,7 @@ object ProotSession {
             )
                 .apply {
                     environment().clear()
-                    environment().putAll(guestEnv(context.filesDir))
+                    environment().putAll(guestEnv(context.filesDir, loaderPath(context)))
                 }
                 .redirectErrorStream(true)
                 .start()
@@ -270,10 +289,14 @@ object ProotSession {
      * the runtime is not installed. [prootBinary] comes from
      * [installedBinary]; the TerminalSession's own cwd is the host home dir.
      */
-    fun terminalSessionConfig(filesDir: File, prootBinary: File): SessionConfig? {
+    fun terminalSessionConfig(
+        filesDir: File,
+        prootBinary: File,
+        loaderPath: File? = null
+    ): SessionConfig? {
         if (!TermuxBootstrap.isInstalled(filesDir)) return null
         val argv = buildArgv(filesDir, prootBinary, command = null)
-        val env = guestEnv(filesDir).map { (k, v) -> "$k=$v" }.toTypedArray()
+        val env = guestEnv(filesDir, loaderPath).map { (k, v) -> "$k=$v" }.toTypedArray()
         return SessionConfig(
             shellPath = argv[0],
             args = argv.drop(1).toTypedArray(),

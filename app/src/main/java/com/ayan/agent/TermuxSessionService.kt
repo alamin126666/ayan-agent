@@ -112,7 +112,9 @@ class TermuxSessionService : Service() {
         session?.let { return it }
         ProotSession.prepareGuestFiles(this)
         val proot = ProotSession.installedBinary(this) ?: return null
-        val config = ProotSession.terminalSessionConfig(filesDir, proot) ?: return null
+        val config = ProotSession.terminalSessionConfig(
+            filesDir, proot, ProotSession.loaderPath(this)
+        ) ?: return null
         val created = TerminalSession(
             config.shellPath,
             File(filesDir, "home").absolutePath,

@@ -25,4 +25,4 @@ Android Studio-তে প্রজেক্ট খুলে Run করুন, �
 ./gradlew assembleDebug
 ```
 
-নোট: এই প্রজেক্টে `gradlew` স্ক্রিপ্ট Android Studio প্রথমবার খুললে তৈরি হয় (gradle-wrapper.properties দেওয়া আছে, Gradle 8.2)। GitHub Actions-এ বিল্ডের আগে `gradlew` কমিট করা থাকতে হবে।
+নোট: `gradlew`, `gradlew.bat` আর `gradle-wrapper.jar` (Gradle 8.2) রিপোতেই আছে, তাই GitHub Actions সরাসরি বিল্ড করতে পারবে।

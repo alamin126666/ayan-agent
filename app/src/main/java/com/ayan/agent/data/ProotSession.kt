@@ -243,7 +243,11 @@ object ProotSession {
         // configuration from /linkerconfig/ld.config.txt" to stderr/stdout,
         // which corrupts the output of commands like `id -u` and causes the
         // bootstrap's second-stage script to report an invalid UID.
-        if (File("/linkerconfig").exists()) argv.add("--bind=/linkerconfig")
+        // Only bind /linkerconfig when the app process can actually read it.
+        // On some devices the directory exists but is not readable (Permission
+        // denied), which makes proot print a warning and skip the bind anyway.
+        // Checking canRead() avoids the spurious proot warning in that case.
+        if (File("/linkerconfig").canRead()) argv.add("--bind=/linkerconfig")
         for ((host, guest) in extraBinds) argv.add("--bind=$host:$guest")
         val login = File(TermuxBootstrap.prefixDir(filesDir), "bin/login")
         if (login.exists()) {

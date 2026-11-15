@@ -1,5 +1,7 @@
 apply plugin: 'com.android.library'
-apply plugin: 'maven-publish'
+// NOTE (Ayan Agent): Termux's maven-publish blocks were removed — this
+// module is vendored for in-app use only and is never published. (The
+// `from components.default` publication broke configuration with our AGP.)
 
 android {
     namespace "com.termux.emulator"
@@ -43,14 +45,6 @@ android {
     testOptions {
         unitTests.returnDefaultValues = true
     }
-
-    publishing {
-        multipleVariants {
-            withSourcesJar()
-            withJavadocJar()
-            allVariants()
-        }
-    }
 }
 
 tasks.withType(Test) {
@@ -64,22 +58,4 @@ dependencies {
     testImplementation "junit:junit:4.13.2"
 }
 
-task sourceJar(type: Jar) {
-    from android.sourceSets.main.java.srcDirs
-    archiveClassifier = "sources"
-}
 
-afterEvaluate {
-    publishing {
-        publications {
-            // Creates a Maven publication called "release".
-            release(MavenPublication) {
-                from components.default
-                groupId = 'com.termux'
-                artifactId = 'terminal-emulator'
-                version = '0.118.0'
-                artifact(sourceJar)
-            }
-        }
-    }
-}

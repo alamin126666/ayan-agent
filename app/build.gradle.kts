@@ -16,8 +16,27 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing: the keystore itself is NOT in the repo. GitHub Actions
+    // decodes it from the ANDROID_KEYSTORE_BASE64 secret into release.keystore
+    // and passes the passwords via environment variables (see android.yml).
+    // Local release builds without those env vars stay unsigned.
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("KEYSTORE_PATH")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

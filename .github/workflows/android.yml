@@ -28,8 +28,16 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Prepare release keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -41,6 +49,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ayan-agent-release
-          # No signing config yet, so Gradle produces app-release-unsigned.apk,
-          # not app-release.apk. Upload whatever release APK was built.
+          # Signed release APK (app-release.apk) when the keystore secret is
+          # present; falls back to whatever release APK was built otherwise.
           path: app/build/outputs/apk/release/*.apk

@@ -25,12 +25,12 @@ jobs:
       # NDK: the vendored Termux terminal-emulator module builds its JNI
       # PTY library (libtermux.so) with ndkBuild, so the build needs the NDK
       # (same version Termux itself uses: 29.0.14206865, see gradle.properties).
-      - name: Set up Android SDK and NDK
-        uses: android-actions/setup-android@v3
+      # The runner already has the Android SDK; install the NDK with its
+      # sdkmanager directly.
       - name: Install NDK
         run: |
-          sdkmanager "ndk;29.0.14206865"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
+          echo "y" | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> $GITHUB_ENV
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

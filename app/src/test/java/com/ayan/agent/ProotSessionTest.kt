@@ -74,6 +74,28 @@ class ProotSessionTest {
     }
 
     @Test
+    fun terminalSessionConfigSplitsShellArgsEnv() {
+        val files = filesDir()
+        val proot = File(files, "proot")
+        val config = ProotSession.terminalSessionConfig(files, proot)
+        assertTrue(config != null)
+        config!!
+        assertEquals(proot.absolutePath, config.shellPath)
+        assertTrue(config.args.contains("--rootfs=${files.absolutePath}"))
+        assertTrue(config.args.contains("/data/data/com.termux/files/usr/bin/login"))
+        assertTrue(config.env.contains("PREFIX=/data/data/com.termux/files/usr"))
+        assertTrue(config.env.contains("HOME=/data/data/com.termux/files/home"))
+        assertFalse(config.env.any { it.startsWith("LD_PRELOAD=") })
+        assertFalse(config.env.any { it.startsWith("LD_LIBRARY_PATH=") })
+    }
+
+    @Test
+    fun terminalSessionConfigNullWithoutBootstrap() {
+        val root = Files.createTempDirectory("proot-test-noboot").toFile()
+        assertEquals(null, ProotSession.terminalSessionConfig(root, File(root, "proot")))
+    }
+
+    @Test
     fun guestEnvHasTermuxPathsAndNoLoaderVars() {
         val env = ProotSession.guestEnv(filesDir())
         assertEquals("/data/data/com.termux/files/usr", env["PREFIX"])

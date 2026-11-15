@@ -59,11 +59,12 @@ class RuntimeInstaller(private val context: Context? = null) {
         onOutput: (String) -> Unit,
         onProgress: (Float) -> Unit
     ): InstallResult = withContext(Dispatchers.IO) {
-        // Real Termux runtime: run `pkg install` inside the proot guest.
+        // Real Termux runtime: run `pkg install` inside the proot guest
+        // (AgentShell picks the guest when it is ready, host `sh` otherwise).
         val ctx = context
         if (ctx != null && ProotSession.isAvailable(ctx)) {
             onOutput("$ ${item.installCommand}  (Termux runtime)")
-            val code = ProotSession.runCommand(ctx, item.installCommand, onOutput)
+            val code = AgentShell.run(ctx, item.installCommand, onOutput = onOutput)
             onProgress(1f)
             return@withContext if (code == 0) InstallResult.OK else InstallResult.FAILED
         }

@@ -82,9 +82,15 @@ object ProotSession {
     /**
      * Full proot argv for one session. [command] runs via `login -c` when
      * given; null starts an interactive login shell. The first element is
-     * the proot binary itself.
+     * the proot binary itself. [extraBinds] are extra host→guest binds,
+     * e.g. the user-selected project folder → /mnt/project.
      */
-    fun buildArgv(filesDir: File, prootBinary: File, command: String?): List<String> {
+    fun buildArgv(
+        filesDir: File,
+        prootBinary: File,
+        command: String?,
+        extraBinds: List<Pair<String, String>> = emptyList()
+    ): List<String> {
         val p = GUEST_PREFIX
         val argv = mutableListOf(
             prootBinary.absolutePath,
@@ -114,6 +120,7 @@ object ProotSession {
             "--bind=${File(filesDir, "usr").absolutePath}:$p/usr",
             "--bind=${File(filesDir, "home").absolutePath}:$p/home"
         )
+        for ((host, guest) in extraBinds) argv.add("--bind=$host:$guest")
         val login = File(filesDir, "usr/bin/login")
         if (login.exists()) {
             argv.add("$p/usr/bin/login")
@@ -132,12 +139,15 @@ object ProotSession {
     suspend fun runCommand(
         context: Context,
         command: String,
-        onOutput: (String) -> Unit
+        onOutput: (String) -> Unit,
+        extraBinds: List<Pair<String, String>> = emptyList()
     ): Int = withContext(Dispatchers.IO) {
         val proot = installedBinary(context)
             ?: run { onOutput("proot is not available on this device."); return@withContext 1 }
         File(context.filesDir, "proot-shm").mkdirs()
-        val process = ProcessBuilder(buildArgv(context.filesDir, proot, command))
+        val process = ProcessBuilder(
+            buildArgv(context.filesDir, proot, command, extraBinds)
+        )
             .apply {
                 environment().clear()
                 environment().putAll(guestEnv(context.filesDir))
@@ -148,5 +158,28 @@ object ProotSession {
             lines.forEach { onOutput(it) }
         }
         process.waitFor()
+    }
+
+    /** Everything `TerminalSession` needs to start an interactive shell. */
+    data class SessionConfig(
+        val shellPath: String,
+        val args: Array<String>,
+        val env: Array<String>
+    )
+
+    /**
+     * Config for an interactive login shell inside the guest, or null when
+     * the runtime is not installed. [prootBinary] comes from
+     * [installedBinary]; the TerminalSession's own cwd is the host home dir.
+     */
+    fun terminalSessionConfig(filesDir: File, prootBinary: File): SessionConfig? {
+        if (!TermuxBootstrap.isInstalled(filesDir)) return null
+        val argv = buildArgv(filesDir, prootBinary, command = null)
+        val env = guestEnv(filesDir).map { (k, v) -> "$k=$v" }.toTypedArray()
+        return SessionConfig(
+            shellPath = argv[0],
+            args = argv.drop(1).toTypedArray(),
+            env = env
+        )
     }
 }

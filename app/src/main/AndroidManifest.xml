@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the user exempt Ayan Agent from battery optimisation so the
+         install service is not killed when the app is backgrounded. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -39,5 +42,12 @@
             android:name=".TermuxSessionService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
+        <!-- Runs runtime installation in the background so the user can
+             switch apps or turn the screen off during the ~30 MB bootstrap
+             download + pkg installs without the work being cancelled. -->
+        <service
+            android:name=".InstallService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

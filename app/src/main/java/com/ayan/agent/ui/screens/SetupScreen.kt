@@ -4,12 +4,16 @@ import android.Manifest
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -63,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ayan.agent.InstallService
 import com.ayan.agent.data.InstallResult
 import com.ayan.agent.data.InstallState
 import com.ayan.agent.data.RuntimeInstaller
@@ -87,6 +92,48 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 
     /** কোন রানটাইম ইনস্টল করা হবে — default: সব চেক করা */
     val selectedRuntimes = mutableStateMapOf<String, Boolean>()
+
+    // ── Battery optimisation ──────────────────────────────────────────────────
+    /** true = battery opt IS on (bad for background install); UI shows a prompt. */
+    var batteryOptOn by mutableStateOf(false)
+        private set
+
+    fun refreshBatteryOpt() {
+        val app = getApplication<Application>()
+        val pm  = app.getSystemService(Context.POWER_SERVICE) as PowerManager
+        batteryOptOn = !pm.isIgnoringBatteryOptimizations(app.packageName)
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── InstallService binding ────────────────────────────────────────────────
+    /**
+     * When the user starts an install we hand the work to InstallService (a
+     * foreground service) so it survives the app being backgrounded. We bind
+     * back to it here and mirror its StateFlows into the ViewModel's own
+     * Compose state so the UI keeps updating while the app is in the foreground.
+     */
+    private val svcConn = object : ServiceConnection {
+        override fun onServiceConnected(n: ComponentName?, b: IBinder?) {
+            val svc = (b as InstallService.LocalBinder).service()
+            viewModelScope.launch { svc.bootstrapState.collect    { bootstrapState    = it  } }
+            viewModelScope.launch { svc.bootstrapProgress.collect { bootstrapProgress = it  } }
+            viewModelScope.launch { svc.states.collect   { map -> map.forEach { (k, v) -> states[k]   = v } } }
+            viewModelScope.launch { svc.progressF.collect{ map -> map.forEach { (k, v) -> progress[k] = v } } }
+            viewModelScope.launch { svc.log.collect      { lines ->
+                log.apply { clear(); addAll(lines.takeLast(80)) }
+            } }
+            viewModelScope.launch { svc.isInstalling.collect { installing = it } }
+            viewModelScope.launch { svc.isDone.collect       { if (it) _allDone.value = true } }
+            viewModelScope.launch { svc.pkgMissing.collect   { pkgMissing = it } }
+        }
+        override fun onServiceDisconnected(n: ComponentName?) = Unit
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        runCatching { getApplication<Application>().unbindService(svcConn) }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     private val _allDone = MutableStateFlow(false)
     val allDone = _allDone.asStateFlow()
@@ -119,6 +166,7 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         }
         val app = getApplication<Application>()
         refreshStorageState()
+        refreshBatteryOpt()
         if (TermuxBootstrap.isInstalled(app.filesDir)) {
             bootstrapState = InstallState.DONE
             bootstrapProgress = 1f
@@ -176,44 +224,37 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Starts InstallService (foreground) with the selected runtime IDs and
+     * binds to it so the ViewModel mirrors its state. The service keeps
+     * running even if the user goes home — the notification shows progress.
+     */
     fun installAll() {
         if (installing) return
-        installing = true
-        viewModelScope.launch {
-            // Step 1: Termux runtime (bootstrap). Without it there is no
-            // `pkg` at all, so the runtime installs below cannot run.
-            if (!ensureBootstrap()) {
-                installing = false
-                return@launch
-            }
-            // শুধু সিলেক্ট করা রানটাইমগুলো ইনস্টল করো
-            val toInstall = Runtimes.all.filter { selectedRuntimes[it.id] != false }
-            if (toInstall.isEmpty()) {
-                // কিছু সিলেক্ট নেই — bootstrap হয়েছে, setup done হিসেবে mark করো
-                store.setSetupDone(true)
-                _allDone.value = true
-                installing = false
-                return@launch
-            }
-            for (item in toInstall) {
-                installOne(item)
-            }
-            installing = false
-            if (toInstall.all { states[it.id] == InstallState.DONE }) {
-                store.setSetupDone(true)
-                _allDone.value = true
-            }
-        }
+        val app = getApplication<Application>()
+        val ids = Runtimes.all.filter { selectedRuntimes[it.id] != false }.map { it.id }
+        startInstallService(app, ids)
     }
 
+    /** Retry a single failed runtime (also via the service, so it's background-safe). */
     fun retry(item: RuntimeItem) {
         if (installing) return
-        viewModelScope.launch { installOne(item) }
+        val app = getApplication<Application>()
+        startInstallService(app, listOf(item.id))
     }
 
+    /** Retry bootstrap (re-runs the full flow — bootstrap first, then whatever is selected). */
     fun retryBootstrap() {
         if (installing) return
-        viewModelScope.launch { ensureBootstrap() }
+        installAll()
+    }
+
+    private fun startInstallService(app: Application, ids: List<String>) {
+        val intent = Intent(app, InstallService::class.java).apply {
+            putStringArrayListExtra(InstallService.EXTRA_IDS, ArrayList(ids))
+        }
+        app.startForegroundService(intent)
+        app.bindService(intent, svcConn, Context.BIND_AUTO_CREATE)
     }
 
     /** Downloads + extracts the Termux bootstrap if it is not installed yet. */
@@ -292,6 +333,10 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { vm.refreshStorageState() }
+    // Battery optimisation: re-check when the user returns from system settings.
+    val batteryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { vm.refreshBatteryOpt() }
 
     if (allDone) {
         // Hand over to the Success screen once everything installed.
@@ -313,6 +358,48 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        // ── Battery optimisation prompt ───────────────────────────────────────
+        // Like real Termux, we ask the user to disable battery optimisation so
+        // Android does not kill the install when they switch apps or the screen
+        // turns off. The card disappears once optimisation is off.
+        if (vm.batteryOptOn) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "⚠️ ব্যাটারি অপ্টিমাইজেশন চালু আছে",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "ইনস্টলের মাঝে অ্যাপ minimize করলে Android বন্ধ করে দিতে পারে। বন্ধ করে দিন।",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+                Spacer(modifier = Modifier.padding(start = 8.dp))
+                OutlinedButton(onClick = {
+                    batteryLauncher.launch(
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                }) {
+                    Text("বন্ধ করুন")
+                }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         // Select All / Deselect All
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),

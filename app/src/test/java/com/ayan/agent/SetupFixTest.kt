@@ -36,6 +36,21 @@ class SetupFixTest {
     }
 
     @Test
+    fun storageAccessStartsUngrantedAndSettingsIntentTargetsApp() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = SetupViewModel(app)
+        // No file access granted under Robolectric by default.
+        assertEquals(false, vm.storageGranted)
+        assertEquals(false, SetupViewModel.hasStorageAccess(app))
+        val intent = vm.openStorageSettings(app)
+        assertEquals(
+            android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            intent.action
+        )
+        assertTrue(intent.dataString?.contains(app.packageName) == true)
+    }
+
+    @Test
     fun skipSetupMarksSetupDone() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         val vm = SetupViewModel(app)

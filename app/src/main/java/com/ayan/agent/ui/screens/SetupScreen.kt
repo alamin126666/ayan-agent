@@ -1,10 +1,20 @@
 package com.ayan.agent.ui.screens
 
+import android.Manifest
 import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,14 +97,52 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
     var bootstrapProgress by mutableStateOf(0f)
         private set
 
+    /**
+     * File-manager access ("All files access"), like real Termux setup
+     * asks for. Without it the guest cannot see /sdcard and the agent
+     * cannot work on the user's files. It does NOT gate the installs —
+     * `pkg` works without it — so this is a step, not a blocker.
+     */
+    var storageGranted by mutableStateOf(false)
+        private set
+
     private var installing by mutableStateOf(false)
 
     init {
         Runtimes.all.forEach { states[it.id] = InstallState.NOT_INSTALLED }
         val app = getApplication<Application>()
+        refreshStorageState()
         if (TermuxBootstrap.isInstalled(app.filesDir)) {
             bootstrapState = InstallState.DONE
             bootstrapProgress = 1f
+        }
+    }
+
+    fun refreshStorageState() {
+        storageGranted = hasStorageAccess(getApplication())
+    }
+
+    /** Intent for the system screen where the user grants all-files access. */
+    fun openStorageSettings(context: Context): Intent {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${context.packageName}")
+            )
+        } else {
+            Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+        }
+    }
+
+    companion object {
+        fun hasStorageAccess(context: Context): Boolean {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.READ_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED
+            }
         }
     }
 
@@ -195,6 +243,16 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 fun SetupScreen(onSetupComplete: () -> Unit) {
     val vm: SetupViewModel = viewModel()
     val allDone by vm.allDone.collectAsState()
+    val context = LocalContext.current
+
+    // File-access flow (real Termux asks for this in setup): the settings
+    // screen on Android 11+, a runtime permission below that.
+    val settingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { vm.refreshStorageState() }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { vm.refreshStorageState() }
 
     if (allDone) {
         // Hand over to the Success screen once everything installed.
@@ -230,6 +288,40 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // File-manager access, like real Termux setup asks for.
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "ফাইল অ্যাক্সেস", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = if (vm.storageGranted) {
+                                "দেওয়া হয়েছে — Termux /sdcard ব্যবহার করতে পারবে"
+                            } else {
+                                "দেওয়া হয়নি — Termux-এর মতো ফাইল ম্যানেজার অ্যাক্সেস দিন"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (vm.storageGranted) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        OutlinedButton(onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                settingsLauncher.launch(vm.openStorageSettings(context))
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                        }) {
+                            Text("অনুমতি দিন")
+                        }
+                    }
+                }
+            }
             // Termux runtime (bootstrap) installs first — the `pkg` installs below need it.
             item {
                 RuntimeRow(

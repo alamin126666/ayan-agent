@@ -188,22 +188,28 @@ object ProotSession {
         onOutput: (String) -> Unit,
         extraBinds: List<Pair<String, String>> = emptyList()
     ): Int = withContext(Dispatchers.IO) {
-        val proot = installedBinary(context)
-            ?: run { onOutput("proot is not available on this device."); return@withContext 1 }
-        File(context.filesDir, "proot-shm").mkdirs()
-        val process = ProcessBuilder(
-            buildArgv(context.filesDir, proot, command, extraBinds)
-        )
-            .apply {
-                environment().clear()
-                environment().putAll(guestEnv(context.filesDir))
+        try {
+            val proot = installedBinary(context)
+                ?: run { onOutput("proot is not available on this device."); return@withContext 1 }
+            File(context.filesDir, "proot-shm").mkdirs()
+            val process = ProcessBuilder(
+                buildArgv(context.filesDir, proot, command, extraBinds)
+            )
+                .apply {
+                    environment().clear()
+                    environment().putAll(guestEnv(context.filesDir))
+                }
+                .redirectErrorStream(true)
+                .start()
+            process.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { onOutput(it) }
             }
-            .redirectErrorStream(true)
-            .start()
-        process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { onOutput(it) }
+            process.waitFor()
+        } catch (e: Exception) {
+            // Never let a failed start crash the app — report it as a failed run.
+            onOutput("proot error: ${e.message}")
+            1
         }
-        process.waitFor()
     }
 
     /** Everything `TerminalSession` needs to start an interactive shell. */

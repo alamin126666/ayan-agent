@@ -16,6 +16,9 @@ import kotlinx.coroutines.withContext
  * the guest it is bound to /mnt/project and the command starts there, so
  * the agent can only touch that folder. On the host fallback the command
  * runs with that directory as its working directory.
+ *
+ * A failed command never crashes the app — it reports the error and
+ * returns a non-zero exit code.
  */
 object AgentShell {
 
@@ -27,6 +30,20 @@ object AgentShell {
         projectDir: File? = null,
         onOutput: (String) -> Unit
     ): Int = withContext(Dispatchers.IO) {
+        try {
+            runUnchecked(context, command, projectDir, onOutput)
+        } catch (e: Exception) {
+            onOutput("Error: ${e.message}")
+            1
+        }
+    }
+
+    private suspend fun runUnchecked(
+        context: Context,
+        command: String,
+        projectDir: File?,
+        onOutput: (String) -> Unit
+    ): Int {
         if (ProotSession.isAvailable(context)) {
             val binds = projectDir?.let {
                 listOf(it.absolutePath to GUEST_PROJECT_DIR)
@@ -36,9 +53,7 @@ object AgentShell {
             } else {
                 command
             }
-            return@withContext ProotSession.runCommand(
-                context, guestCommand, onOutput, binds
-            )
+            return ProotSession.runCommand(context, guestCommand, onOutput, binds)
         }
         try {
             onOutput("$ $command  (host shell — Termux runtime not installed)")

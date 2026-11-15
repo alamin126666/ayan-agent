@@ -126,8 +126,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         val ok = TermuxBootstrap.downloadAndInstall(
             filesDir = app.filesDir,
             cacheDir = app.cacheDir,
-            onProgress = { bootstrapProgress = it },
-            onLog = { log.add(it) }
+            // Callbacks arrive on a background thread; Compose state must
+            // only be mutated on the Main thread.
+            onProgress = { p -> viewModelScope.launch { bootstrapProgress = p } },
+            onLog = { line -> viewModelScope.launch { log.add(line) } }
         )
         bootstrapState = if (ok) InstallState.DONE else InstallState.FAILED
         if (ok) bootstrapProgress = 1f
@@ -153,8 +155,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
         when (
             installer.install(
                 item,
-                onOutput = { log.add(it) },
-                onProgress = { progress[item.id] = it }
+                // Callbacks arrive on a background thread; Compose state must
+                // only be mutated on the Main thread.
+                onOutput = { line -> viewModelScope.launch { log.add(line) } },
+                onProgress = { p -> viewModelScope.launch { progress[item.id] = p } }
             )
         ) {
             InstallResult.OK -> {

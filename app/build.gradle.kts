@@ -70,7 +70,15 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    // NOTE (2026-11-15 crash fix): BOM 2024.01.00 shipped material3 1.1.2
+    // (built against animation-core 1.5.x) together with animation-core
+    // 1.6.0, whose keyframes API changed. material3 1.1.2's
+    // CircularProgressIndicator called KeyframesSpecConfig.at(Object, int),
+    // which does not exist in animation-core 1.6.0, so the app crashed
+    // with NoSuchMethodError the instant the Loading screen composed its
+    // progress indicator — i.e. right after opening the app.
+    // BOM 2024.02.00 aligns them (material3 1.2.0 + animation-core 1.6.1).
+    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 

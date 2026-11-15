@@ -37,4 +37,29 @@ class LaunchCrashTest {
         assertFalse("MainActivity finished/destroyed right after launch", !alive)
         scenario.close()
     }
+
+    /**
+     * Same launch, but with setup already done: the app must go straight
+     * to Home (Chat tab) without crashing either.
+     */
+    @Test
+    fun appLaunchesToHomeWhenSetupDone() {
+        val app = androidx.test.core.app.ApplicationProvider
+            .getApplicationContext<android.app.Application>()
+        kotlinx.coroutines.runBlocking {
+            com.ayan.agent.data.SettingsStore(app).setSetupDone(true)
+        }
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        repeat(10) {
+            shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+            Thread.sleep(200)
+        }
+        var alive = false
+        scenario.onActivity { activity ->
+            alive = !activity.isFinishing && !activity.isDestroyed
+            assertNotNull("MainActivity must exist after launch", activity)
+        }
+        assertFalse("MainActivity finished/destroyed on Home", !alive)
+        scenario.close()
+    }
 }

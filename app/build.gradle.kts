@@ -55,6 +55,9 @@ dependencies {
     // Needed for the XML window theme Theme.Material3.DayNight.NoActionBar
     // used in res/values/themes.xml (the Compose theme itself is in ui/theme/).
     implementation("com.google.android.material:material:1.11.0")
+    // Icons used in the screens (Code, FolderOpen, Undo, Chat, Terminal,
+    // Error) live in material-icons-extended, not in the core icon set.
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")

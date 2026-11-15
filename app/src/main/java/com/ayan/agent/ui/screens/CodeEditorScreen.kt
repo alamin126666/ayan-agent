@@ -163,7 +163,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                     changedFiles++
                 }
             }
-            status = "$changedFilesটি ফাইলে বদলানো হয়েছে"
+            status = "${changedFiles}টি ফাইলে বদলানো হয়েছে"
             loadTree()
         }
     }

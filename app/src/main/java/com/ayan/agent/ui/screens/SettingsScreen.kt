@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,20 +41,27 @@ import com.ayan.agent.data.SettingsStore
 import com.ayan.agent.data.provider.BuiltInProviders
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val store = SettingsStore(application)
     private val gson = Gson()
 
-    val providerId = store.providerId.collectAsState(initial = "openrouter")
-    val modelId = store.modelId.collectAsState(initial = "")
-    val fallbackOn = store.multiKeyFallback.collectAsState(initial = true)
+    // collectAsState() is a @Composable call, so it cannot run in a ViewModel.
+    // The ViewModel exposes the raw DataStore Flows; the screen collects them.
+    val providerId: Flow<String> = store.providerId
+    val modelId: Flow<String> = store.modelId
+    val fallbackOn: Flow<Boolean> = store.multiKeyFallback
+
+    var currentProviderId: String = "openrouter"
+        private set
 
     var keys = mutableStateListOf<String>()
         private set
 
     fun loadKeys(allKeys: Map<String, List<String>>, provider: String) {
+        currentProviderId = provider
         keys.clear()
         keys.addAll(allKeys[provider].orEmpty())
     }
@@ -88,7 +96,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val map: MutableMap<String, MutableList<String>> =
                 runCatching { gson.fromJson<MutableMap<String, MutableList<String>>>(json, type) }
                     .getOrDefault(mutableMapOf())
-            map[providerId.value] = keys.toMutableList()
+            map[currentProviderId] = keys.toMutableList()
             val out = gson.toJson(map)
             store.setApiKeysJson(out)
             val outType = object : TypeToken<Map<String, List<String>>>() {}.type
@@ -98,13 +106,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 }
 
 /** Step 6 — Settings (PRD v0.3): providers, custom provider, models, multi-key fallback. */
+@OptIn(ExperimentalMaterial3Api::class) // Card(onClick = ...) is experimental
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val vm: SettingsViewModel = viewModel()
     val context = LocalContext.current
-    val providerId by vm.providerId
-    val model by vm.modelId
-    val fallbackOn by vm.fallbackOn
+    val providerId by vm.providerId.collectAsState(initial = "openrouter")
+    val model by vm.modelId.collectAsState(initial = "")
+    val fallbackOn by vm.fallbackOn.collectAsState(initial = true)
 
     var allKeys by remember { mutableStateOf<Map<String, List<String>>>(emptyMap()) }
     var newKey by remember { mutableStateOf("") }

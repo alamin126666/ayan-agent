@@ -45,6 +45,17 @@ android {
         }
     }
 
+    // proot ships as a native library (libproot_exec.so) and the app must
+    // EXECUTE it. Android 10+ blocks exec of files the app itself wrote
+    // into its data dir (EACCES, error=13), so the .so has to be extracted
+    // by the installer into the native library dir, where exec is allowed.
+    // That only happens with legacy packaging.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -41,31 +41,28 @@ object ProotSession {
     )
 
     /**
-     * The proot executable, copied into the app's private files dir (where
-     * it can be executed) on first use. Returns null when the binary is not
+     * The proot executable to run. Returns null when the binary is not
      * shipped for this ABI.
      *
-     * Two sources, in order: (1) the extracted native libs dir — only
-     * populated when the app is installed with legacy packaging; (2) the
-     * APK zip itself. AGP's default packaging keeps `.so` files *inside*
-     * the APK (they are loaded from there, never extracted), so on a real
-     * phone (1) is empty and only (2) works — that is why installs failed
-     * with NO_PKG_MANAGER even though the bootstrap was installed.
+     * Sources, in order:
+     * (1) The native library dir, used IN PLACE. With legacy packaging the
+     * installer extracts libproot_exec.so there, and that is the one place
+     * Android lets an app execute a file from.
+     * (2) A copy in the app's files dir (from an earlier run, or extracted
+     * from the APK zip below). NOTE: on Android 10+ the OS refuses to
+     * execute files the app itself wrote into its data dir (EACCES,
+     * error=13 — seen on Alamin's phone 2026-11-15), so this is only a
+     * fallback for devices where (1) is unavailable.
+     * (3) Straight out of the APK zip, for this device's ABI.
      */
     fun installedBinary(context: Context): File? {
-        val dest = File(context.filesDir, "proot")
-        // Already extracted and executable — reuse it.
-        if (dest.exists() && dest.canExecute()) return dest
-        // (1) Extracted native libs dir.
+        // (1) Native library dir — execute in place, never copy it out.
         val fromLibDir = File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
-        if (fromLibDir.exists()) {
-            if (!dest.exists() || dest.length() != fromLibDir.length()) {
-                fromLibDir.copyTo(dest, overwrite = true)
-                makeExecutable(dest)
-            }
-            if (dest.canExecute()) return dest
-        }
-        // (2) Straight out of the APK zip, for this device's ABI.
+        if (fromLibDir.exists() && fromLibDir.canExecute()) return fromLibDir
+        // (2) A copy made earlier.
+        val dest = File(context.filesDir, "proot")
+        if (dest.exists() && dest.canExecute()) return dest
+        // (3) Straight out of the APK zip, for this device's ABI.
         val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: return null
         if (extractFromApk(context.applicationInfo.sourceDir, abi, dest)) {
             return if (dest.canExecute()) dest else null

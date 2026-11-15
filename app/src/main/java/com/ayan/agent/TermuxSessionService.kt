@@ -110,6 +110,7 @@ class TermuxSessionService : Service() {
     /** Creates the interactive login-shell session, or null if the runtime is not ready. */
     fun createSessionIfNeeded(): TerminalSession? {
         session?.let { return it }
+        ProotSession.prepareGuestFiles(this)
         val proot = ProotSession.installedBinary(this) ?: return null
         val config = ProotSession.terminalSessionConfig(filesDir, proot) ?: return null
         val created = TerminalSession(

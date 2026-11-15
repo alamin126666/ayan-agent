@@ -1,5 +1,7 @@
 package com.ayan.agent
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.ayan.agent.data.ProotSession
 import java.io.File
 import java.nio.file.Files
@@ -118,6 +120,31 @@ class ProotSessionTest {
         missing.delete()
         assertFalse(ProotSession.extractFromApk(apk.absolutePath, "armeabi-v7a", missing))
         assertFalse(missing.exists())
+    }
+
+    @Test
+    fun guestEnvSetsProotTmpDirOnHost() {
+        val files = filesDir()
+        val env = ProotSession.guestEnv(files)
+        assertEquals(File(files, "proot-tmp").absolutePath, env["PROOT_TMP_DIR"])
+        // The guest's own TMPDIR stays a guest path.
+        assertEquals("/data/data/com.termux/files/usr/tmp", env["TMPDIR"])
+    }
+
+    @Test
+    fun prepareGuestFilesCreatesDirsAndResolvConf() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        ProotSession.prepareGuestFiles(context)
+        val filesDir = context.filesDir
+        assertTrue(File(filesDir, "proot-shm").isDirectory)
+        assertTrue(File(filesDir, "proot-tmp").isDirectory)
+        assertTrue(File(filesDir, "usr/tmp").isDirectory)
+        assertTrue(File(filesDir, "home").isDirectory)
+        assertTrue(File(filesDir, "data/data/com.termux/files/cache").isDirectory)
+        val resolv = File(filesDir, "usr/etc/resolv.conf")
+        assertTrue(resolv.exists())
+        // No active network under Robolectric, so the public fallback is used.
+        assertTrue(resolv.readText().contains("nameserver 8.8.8.8"))
     }
 
     @Test

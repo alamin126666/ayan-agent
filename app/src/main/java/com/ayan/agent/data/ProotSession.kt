@@ -1,6 +1,7 @@
 package com.ayan.agent.data
 
 import android.content.Context
+import android.net.ConnectivityManager
 import android.os.Build
 import java.io.File
 import java.util.zip.ZipFile
@@ -103,6 +104,43 @@ object ProotSession {
         installedBinary(context) != null &&
             TermuxBootstrap.isInstalled(context.filesDir)
 
+    /**
+     * Everything the runtime needs on disk before a session starts: the
+     * dirs proot binds (shm, tmp), the guest's own tmp + home + cache dirs
+     * (proot-distro creates the cache dir for a termux-type guest), and the
+     * guest's DNS config — Android has no /etc/resolv.conf, so without this
+     * `pkg` cannot resolve hostnames. DNS comes from the active network,
+     * falling back to public resolvers when there is none (e.g. in tests).
+     */
+    fun prepareGuestFiles(context: Context) {
+        val filesDir = context.filesDir
+        File(filesDir, "proot-shm").mkdirs()
+        File(filesDir, "proot-tmp").mkdirs()
+        File(filesDir, "usr/tmp").mkdirs()
+        File(filesDir, "home").mkdirs()
+        File(filesDir, "data/data/com.termux/files/cache").mkdirs()
+        val resolv = File(filesDir, "usr/etc/resolv.conf")
+        if (!resolv.exists() || resolv.length() == 0L) {
+            runCatching {
+                resolv.parentFile?.mkdirs()
+                resolv.writeText(dnsServers(context).joinToString("\n") { "nameserver $it" } + "\n")
+            }
+        }
+    }
+
+    private fun dnsServers(context: Context): List<String> {
+        val fallback = listOf("8.8.8.8", "1.1.1.1")
+        return try {
+            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return fallback
+            val servers = manager.getLinkProperties(manager.activeNetwork)
+                ?.dnsServers?.map { it.hostAddress }?.filterNotNull().orEmpty()
+            if (servers.isEmpty()) fallback else servers
+        } catch (e: Exception) {
+            fallback
+        }
+    }
+
     /** Environment for the guest (used both for ProcessBuilder and TerminalSession). */
     fun guestEnv(filesDir: File): Map<String, String> {
         val env = mutableMapOf(
@@ -111,7 +149,12 @@ object ProotSession {
             "PREFIX" to "$GUEST_PREFIX/usr",
             "TMPDIR" to "$GUEST_PREFIX/usr/tmp",
             "TERM" to "xterm-256color",
-            "COLORTERM" to "truecolor"
+            "COLORTERM" to "truecolor",
+            // proot itself (the host process) needs a temp dir for its
+            // "glue" rootfs. TMPDIR above is a GUEST path that does not
+            // exist on the host, so without this proot fails with
+            // "can't create temporary directory" before any bind happens.
+            "PROOT_TMP_DIR" to File(filesDir, "proot-tmp").absolutePath
         )
         for (key in PASSTHROUGH_ENV) {
             System.getenv(key)?.let { env[key] = it }
@@ -186,9 +229,9 @@ object ProotSession {
         extraBinds: List<Pair<String, String>> = emptyList()
     ): Int = withContext(Dispatchers.IO) {
         try {
+            prepareGuestFiles(context)
             val proot = installedBinary(context)
                 ?: run { onOutput("proot is not available on this device."); return@withContext 1 }
-            File(context.filesDir, "proot-shm").mkdirs()
             val process = ProcessBuilder(
                 buildArgv(context.filesDir, proot, command, extraBinds)
             )

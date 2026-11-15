@@ -1,5 +1,6 @@
 package com.ayan.agent.data
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -34,10 +35,15 @@ enum class InstallResult { OK, FAILED, NO_PKG_MANAGER }
 
 /**
  * Runs the install command in the phone runtime shell and streams output.
- * First checks whether the Termux `pkg` tool exists at all; if it does not,
+ * When the in-app Termux runtime is ready (bootstrap + proot), the command
+ * runs inside the guest via `login -c` — that is how `pkg install` actually
+ * works on a normal phone. Otherwise it falls back to the host shell and
+ * first checks whether the Termux `pkg` tool exists at all; if it does not,
  * returns NO_PKG_MANAGER without pretending to install anything.
+ * Pass the app context so the proot path can be used; without it only the
+ * host-shell path is available.
  */
-class RuntimeInstaller {
+class RuntimeInstaller(private val context: Context? = null) {
 
     suspend fun hasPkgManager(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
@@ -53,6 +59,14 @@ class RuntimeInstaller {
         onOutput: (String) -> Unit,
         onProgress: (Float) -> Unit
     ): InstallResult = withContext(Dispatchers.IO) {
+        // Real Termux runtime: run `pkg install` inside the proot guest.
+        val ctx = context
+        if (ctx != null && ProotSession.isAvailable(ctx)) {
+            onOutput("$ ${item.installCommand}  (Termux runtime)")
+            val code = ProotSession.runCommand(ctx, item.installCommand, onOutput)
+            onProgress(1f)
+            return@withContext if (code == 0) InstallResult.OK else InstallResult.FAILED
+        }
         if (!hasPkgManager()) {
             onOutput("এই ফোনে Termux নেই — `pkg` পাওয়া যায়নি, তাই ইনস্টল করা যাবে না।")
             return@withContext InstallResult.NO_PKG_MANAGER

@@ -50,7 +50,9 @@ import kotlinx.coroutines.launch
 
 class SetupViewModel(application: Application) : AndroidViewModel(application) {
     private val store = SettingsStore(application)
-    private val installer = RuntimeInstaller()
+    // The app context lets the installer run `pkg install` inside the
+    // proot'd Termux runtime when it is ready.
+    private val installer = RuntimeInstaller(application)
 
     val states = mutableStateMapOf<String, InstallState>()
     val progress = mutableStateMapOf<String, Float>()

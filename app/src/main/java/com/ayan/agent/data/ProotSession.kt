@@ -140,6 +140,12 @@ object ProotSession {
         File(TermuxBootstrap.prefixDir(filesDir), "tmp").mkdirs()
         TermuxBootstrap.homeDir(filesDir).mkdirs()
         File(filesDir, "data/data/com.termux/files/cache").mkdirs()
+        // apt downloads packages into this staging dir before moving them into
+        // place. Without it `pkg install` fails immediately with:
+        //   "Archives directory .../partial is missing. - Acquire (2: No such file or directory)"
+        // Note: this is under "cache" (not "files/cache") — the same path the
+        // guest sees at /data/data/com.termux/cache/apt/archives/partial.
+        File(filesDir, "data/data/com.termux/cache/apt/archives/partial").mkdirs()
         val resolv = File(TermuxBootstrap.prefixDir(filesDir), "etc/resolv.conf")
         if (!resolv.exists() || resolv.length() == 0L) {
             runCatching {
@@ -231,6 +237,13 @@ object ProotSession {
             // NOTE: no binds for $PREFIX or $HOME — they are real subtrees
             // of the rootfs (see class doc); binding them broke proot.
         )
+        // Android 10+ stores the dynamic-linker namespace config at
+        // /linkerconfig/ld.config.txt. Without this bind every ELF binary
+        // inside the guest prints "failed to find generated linker
+        // configuration from /linkerconfig/ld.config.txt" to stderr/stdout,
+        // which corrupts the output of commands like `id -u` and causes the
+        // bootstrap's second-stage script to report an invalid UID.
+        if (File("/linkerconfig").exists()) argv.add("--bind=/linkerconfig")
         for ((host, guest) in extraBinds) argv.add("--bind=$host:$guest")
         val login = File(TermuxBootstrap.prefixDir(filesDir), "bin/login")
         if (login.exists()) {

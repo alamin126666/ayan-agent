@@ -145,6 +145,9 @@ class ProotSessionTest {
         assertTrue(File(filesDir, "data/data/com.termux/files/usr/tmp").isDirectory)
         assertTrue(File(filesDir, "data/data/com.termux/files/home").isDirectory)
         assertTrue(File(filesDir, "data/data/com.termux/files/cache").isDirectory)
+        // apt staging dir — without this `pkg install` fails immediately with
+        // "Archives directory .../partial is missing."
+        assertTrue(File(filesDir, "data/data/com.termux/cache/apt/archives/partial").isDirectory)
         val resolv = File(filesDir, "data/data/com.termux/files/usr/etc/resolv.conf")
         assertTrue(resolv.exists())
         // No active network under Robolectric, so the public fallback is used.

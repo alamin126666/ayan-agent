@@ -1,7 +1,9 @@
 package com.ayan.agent.ui.screens
 
 import android.app.Application
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,14 +11,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,9 +35,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +49,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ayan.agent.data.AgentShell
+import com.ayan.agent.data.InstallResult
+import com.ayan.agent.data.InstallState
+import com.ayan.agent.data.RuntimeInstaller
+import com.ayan.agent.data.RuntimeItem
+import com.ayan.agent.data.Runtimes
 import com.ayan.agent.data.SettingsStore
 import com.ayan.agent.data.provider.BuiltInProviders
 import com.google.gson.Gson
@@ -59,6 +77,41 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     var keys = mutableStateListOf<String>()
         private set
+
+    // ── Runtime Management ────────────────────────────────────────────────────
+    /** প্রতিটা runtime-এর বর্তমান install অবস্থা */
+    val runtimeStates = mutableStateMapOf<String, InstallState>()
+    /** Install log লাইনগুলো */
+    val runtimeLog = mutableStateListOf<String>()
+    private var runtimeInstalling by mutableStateOf(false)
+
+    /** Settings থেকে যেকোনো runtime install/reinstall করো */
+    fun installRuntime(item: RuntimeItem) {
+        if (runtimeInstalling) return
+        runtimeInstalling = true
+        runtimeStates[item.id] = InstallState.INSTALLING
+        val ctx = getApplication<Application>()
+        viewModelScope.launch {
+            val installer = RuntimeInstaller(ctx)
+            val result = installer.install(
+                item,
+                onOutput = { line -> viewModelScope.launch { runtimeLog.add(line) } },
+                onProgress = {}
+            )
+            runtimeStates[item.id] = when (result) {
+                InstallResult.OK -> InstallState.DONE
+                InstallResult.NO_PKG_MANAGER -> {
+                    runtimeLog.add("Termux runtime install করুন Setup থেকে, তারপর আবার চেষ্টা করুন।")
+                    InstallState.FAILED
+                }
+                InstallResult.FAILED -> InstallState.FAILED
+            }
+            runtimeInstalling = false
+        }
+    }
+
+    fun clearRuntimeLog() { runtimeLog.clear() }
+    // ─────────────────────────────────────────────────────────────────────────
 
     fun loadKeys(allKeys: Map<String, List<String>>, provider: String) {
         currentProviderId = provider
@@ -249,5 +302,110 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+
+        // ── Runtime Management ────────────────────────────────────────────────
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Runtime Management", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Setup-এর পরেও এখান থেকে যেকোনো runtime install বা reinstall করা যাবে।",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+        }
+        items(Runtimes.all) { runtime ->
+            val rState = vm.runtimeStates[runtime.id] ?: InstallState.NOT_INSTALLED
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${runtime.name} ${runtime.version}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = when (rState) {
+                            InstallState.DONE -> "ইনস্টল হয়েছে ✓"
+                            InstallState.INSTALLING -> "ইনস্টল হচ্ছে…"
+                            InstallState.FAILED -> "ব্যর্থ — আবার চেষ্টা করুন"
+                            InstallState.NOT_INSTALLED -> "ইনস্টল করা হয়নি"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (rState) {
+                            InstallState.DONE -> MaterialTheme.colorScheme.primary
+                            InstallState.FAILED -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                when (rState) {
+                    InstallState.DONE -> IconButton(onClick = { vm.installRuntime(runtime) }) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Reinstall",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    InstallState.INSTALLING -> CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .padding(4.dp),
+                        strokeWidth = 2.dp
+                    )
+                    else -> IconButton(onClick = { vm.installRuntime(runtime) }) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Install",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+        // Runtime install log (mini terminal)
+        if (vm.runtimeLog.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1E1E1E))
+                        .padding(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Runtime log (${vm.runtimeLog.size} লাইন)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.TextButton(
+                            onClick = { vm.clearRuntimeLog() }
+                        ) { Text("Clear", color = Color(0xFFBB86FC)) }
+                    }
+                    // শেষ ১০ লাইন দেখাও
+                    vm.runtimeLog.takeLast(10).forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color(0xFFD0D0D0),
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
     }
 }

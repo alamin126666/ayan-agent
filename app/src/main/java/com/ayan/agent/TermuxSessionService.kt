@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ayan.agent.data.ProotSession
+import com.ayan.agent.data.TermuxBootstrap
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -117,7 +118,7 @@ class TermuxSessionService : Service() {
         ) ?: return null
         val created = TerminalSession(
             config.shellPath,
-            File(filesDir, "home").absolutePath,
+            TermuxBootstrap.homeDir(filesDir).absolutePath,
             config.args,
             config.env,
             TRANSCRIPT_ROWS,

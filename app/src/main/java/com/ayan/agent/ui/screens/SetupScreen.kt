@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,6 +85,9 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
     val progress = mutableStateMapOf<String, Float>()
     val log = mutableStateListOf<String>()
 
+    /** কোন রানটাইম ইনস্টল করা হবে — default: সব চেক করা */
+    val selectedRuntimes = mutableStateMapOf<String, Boolean>()
+
     private val _allDone = MutableStateFlow(false)
     val allDone = _allDone.asStateFlow()
 
@@ -109,7 +113,10 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
     private var installing by mutableStateOf(false)
 
     init {
-        Runtimes.all.forEach { states[it.id] = InstallState.NOT_INSTALLED }
+        Runtimes.all.forEach {
+            states[it.id] = InstallState.NOT_INSTALLED
+            selectedRuntimes[it.id] = true  // default: সব সিলেক্ট করা
+        }
         val app = getApplication<Application>()
         refreshStorageState()
         if (TermuxBootstrap.isInstalled(app.filesDir)) {
@@ -120,6 +127,22 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshStorageState() {
         storageGranted = hasStorageAccess(getApplication())
+    }
+
+    /** একটা runtime-এর checkbox toggle করো (DONE হলে toggle হবে না) */
+    fun toggleRuntime(id: String) {
+        if (states[id] == InstallState.DONE) return
+        selectedRuntimes[id] = !(selectedRuntimes[id] ?: true)
+    }
+
+    /** সব রানটাইম সিলেক্ট করো */
+    fun selectAll() {
+        Runtimes.all.forEach { if (states[it.id] != InstallState.DONE) selectedRuntimes[it.id] = true }
+    }
+
+    /** সব রানটাইম ডিসিলেক্ট করো */
+    fun deselectAll() {
+        Runtimes.all.forEach { if (states[it.id] != InstallState.DONE) selectedRuntimes[it.id] = false }
     }
 
     /** Intent for the system screen where the user grants all-files access. */
@@ -163,11 +186,20 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
                 installing = false
                 return@launch
             }
-            for (item in Runtimes.all) {
+            // শুধু সিলেক্ট করা রানটাইমগুলো ইনস্টল করো
+            val toInstall = Runtimes.all.filter { selectedRuntimes[it.id] != false }
+            if (toInstall.isEmpty()) {
+                // কিছু সিলেক্ট নেই — bootstrap হয়েছে, setup done হিসেবে mark করো
+                store.setSetupDone(true)
+                _allDone.value = true
+                installing = false
+                return@launch
+            }
+            for (item in toInstall) {
                 installOne(item)
             }
             installing = false
-            if (Runtimes.all.all { states[it.id] == InstallState.DONE }) {
+            if (toInstall.all { states[it.id] == InstallState.DONE }) {
                 store.setSetupDone(true)
                 _allDone.value = true
             }
@@ -277,10 +309,25 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "প্রথমে Termux runtime (~30 MB, একবার) ডাউনলোড হবে — WiFi ব্যবহার করুন। তারপর নিচের টুলগুলো ইনস্টল হবে।",
+            text = "প্রথমে Termux runtime (~30 MB, একবার) ডাউনলোড হবে — WiFi ব্যবহার করুন। তারপর টিকমার্ক দেওয়া টুলগুলো ইনস্টল হবে।",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        // Select All / Deselect All
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${Runtimes.all.count { vm.selectedRuntimes[it.id] != false }}/${Runtimes.all.size} সিলেক্ট",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = { vm.selectAll() }) { Text("সব নিন") }
+            TextButton(onClick = { vm.deselectAll() }) { Text("সব বাদ") }
+        }
         if (vm.pkgMissing) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
@@ -329,12 +376,13 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     }
                 }
             }
-            // Termux runtime (bootstrap) installs first — the `pkg` installs below need it.
+            // Termux runtime (bootstrap) installs first — mandatory, no checkbox.
             item {
                 RuntimeRow(
                     item = RuntimeItem("bootstrap", "Termux runtime", "bootstrap", ""),
                     state = vm.bootstrapState,
                     progress = vm.bootstrapProgress,
+                    showCheckbox = false,
                     onRetry = { vm.retryBootstrap() }
                 )
             }
@@ -343,6 +391,9 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
                     item = item,
                     state = vm.states[item.id] ?: InstallState.NOT_INSTALLED,
                     progress = vm.progress[item.id] ?: 0f,
+                    selected = vm.selectedRuntimes[item.id] ?: true,
+                    showCheckbox = true,
+                    onToggle = { vm.toggleRuntime(item.id) },
                     onRetry = { vm.retry(item) }
                 )
             }
@@ -354,11 +405,15 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        val selectedCount = Runtimes.all.count { vm.selectedRuntimes[it.id] != false }
         Button(
             onClick = { vm.installAll() },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("সব ইনস্টল করুন")
+            Text(
+                if (selectedCount > 0) "$selectedCount টি ইনস্টল করুন"
+                else "Bootstrap ইনস্টল করুন (কিছু সিলেক্ট নেই)"
+            )
         }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
@@ -446,21 +501,42 @@ private fun RuntimeRow(
     item: RuntimeItem,
     state: InstallState,
     progress: Float,
+    selected: Boolean = true,
+    showCheckbox: Boolean = true,
+    onToggle: () -> Unit = {},
     onRetry: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // Checkbox — bootstrap-এর জন্য দেখাবো না (mandatory)
+            if (showCheckbox) {
+                Checkbox(
+                    checked = selected || state == InstallState.DONE,
+                    onCheckedChange = { onToggle() },
+                    // DONE হলে lock — আনচেক করা যাবে না
+                    enabled = state != InstallState.DONE && state != InstallState.INSTALLING,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = "${item.name} ${item.version}", style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = when (state) {
-                        InstallState.NOT_INSTALLED -> "ইনস্টল হয়নি"
+                        InstallState.NOT_INSTALLED -> if (selected) "ইনস্টল হবে" else "বাদ দেওয়া হয়েছে"
                         InstallState.INSTALLING -> "ইনস্টল হচ্ছে…"
-                        InstallState.DONE -> "ইনস্টল হয়েছে"
+                        InstallState.DONE -> "ইনস্টল হয়েছে ✓"
                         InstallState.FAILED -> "ব্যর্থ হয়েছে — আবার চেষ্টা করুন"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = when (state) {
+                        InstallState.DONE -> MaterialTheme.colorScheme.primary
+                        InstallState.FAILED -> MaterialTheme.colorScheme.error
+                        InstallState.NOT_INSTALLED -> if (selected)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
             when (state) {
@@ -476,7 +552,7 @@ private fun RuntimeRow(
                     modifier = Modifier.padding(8.dp),
                     strokeWidth = 2.dp
                 )
-                InstallState.NOT_INSTALLED -> Icon(
+                InstallState.NOT_INSTALLED -> if (!showCheckbox || selected) Icon(
                     Icons.Default.Error,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant

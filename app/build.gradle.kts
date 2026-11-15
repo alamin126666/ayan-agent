@@ -107,6 +107,11 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    // Real Termux terminal: terminal-view (UI) + terminal-emulator (PTY
+    // session via JNI) — the same libraries Termux itself uses, vendored
+    // under THIRD_PARTY_NOTICES.md (Apache 2.0). This is what powers the
+    // built-in Termux-like terminal and the runtime installs.
+    implementation(project(":terminal-view"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

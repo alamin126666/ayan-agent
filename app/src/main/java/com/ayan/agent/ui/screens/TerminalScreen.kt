@@ -204,13 +204,15 @@ private fun RealTerminalScreen(modifier: Modifier = Modifier) {
             override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {
                 Log.e(tag, message, e)
             }
+            override fun logStackTrace(tag: String, e: Exception) { Log.e(tag, "", e) }
         }
     }
 
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
-                TerminalView(ctx).apply {
+                // TerminalView's only constructor needs an AttributeSet (null is fine).
+                TerminalView(ctx, null).apply {
                     setTerminalViewClient(viewClient)
                     setTextSize(16)
                     isFocusableInTouchMode = true

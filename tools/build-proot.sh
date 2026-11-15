@@ -168,6 +168,11 @@ build_abi() { # abi triple
     # The loader must be copied BEFORE `make clean` deletes it. It is the
     # same static binary proot embeds and extracts at runtime — shipping
     # it as a native lib lets PROOT_LOADER point at the lib dir instead.
+    if [ ! -f "proot-$PROOT_VERSION/src/loader/loader" ]; then
+        echo "ERROR: loader binary missing for $abi; src/loader/ holds:" >&2
+        ls -la "proot-$PROOT_VERSION/src/loader/" >&2 || true
+        exit 1
+    fi
     "$toolchain/llvm-strip" "proot-$PROOT_VERSION/src/loader/loader" \
         -o "$out_root/$abi/libproot_loader.so"
     make -C "proot-$PROOT_VERSION/src" clean >/dev/null 2>&1 || true

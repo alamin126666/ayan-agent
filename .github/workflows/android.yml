@@ -40,7 +40,17 @@ jobs:
         run: |
           sudo apt-get install -y -q patch unzip make > /dev/null
           chmod +x tools/build-proot.sh
-          ./tools/build-proot.sh
+          set -o pipefail
+          ./tools/build-proot.sh 2>&1 | tee proot-build.log
+
+      # The proot build fetches + compiles from source; when it fails the
+      # job log API is not readable, so save its output as an artifact.
+      - name: Upload proot build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proot-build-log
+          path: proot-build.log
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

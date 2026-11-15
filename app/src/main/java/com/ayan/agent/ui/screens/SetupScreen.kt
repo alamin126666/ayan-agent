@@ -43,6 +43,7 @@ import com.ayan.agent.data.RuntimeInstaller
 import com.ayan.agent.data.RuntimeItem
 import com.ayan.agent.data.Runtimes
 import com.ayan.agent.data.SettingsStore
+import com.ayan.agent.data.TermuxBootstrap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -62,16 +63,33 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
     var pkgMissing by mutableStateOf(false)
         private set
 
+    /** The Termux bootstrap (mini Linux rootfs) must install before any `pkg` install can run. */
+    var bootstrapState by mutableStateOf(InstallState.NOT_INSTALLED)
+        private set
+    var bootstrapProgress by mutableStateOf(0f)
+        private set
+
     private var installing by mutableStateOf(false)
 
     init {
         Runtimes.all.forEach { states[it.id] = InstallState.NOT_INSTALLED }
+        val app = getApplication<Application>()
+        if (TermuxBootstrap.isInstalled(app.filesDir)) {
+            bootstrapState = InstallState.DONE
+            bootstrapProgress = 1f
+        }
     }
 
     fun installAll() {
         if (installing) return
         installing = true
         viewModelScope.launch {
+            // Step 1: Termux runtime (bootstrap). Without it there is no
+            // `pkg` at all, so the runtime installs below cannot run.
+            if (!ensureBootstrap()) {
+                installing = false
+                return@launch
+            }
             for (item in Runtimes.all) {
                 installOne(item)
             }
@@ -86,6 +104,32 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
     fun retry(item: RuntimeItem) {
         if (installing) return
         viewModelScope.launch { installOne(item) }
+    }
+
+    fun retryBootstrap() {
+        if (installing) return
+        viewModelScope.launch { ensureBootstrap() }
+    }
+
+    /** Downloads + extracts the Termux bootstrap if it is not installed yet. */
+    private suspend fun ensureBootstrap(): Boolean {
+        val app = getApplication<Application>()
+        if (TermuxBootstrap.isInstalled(app.filesDir)) {
+            bootstrapState = InstallState.DONE
+            bootstrapProgress = 1f
+            return true
+        }
+        bootstrapState = InstallState.INSTALLING
+        bootstrapProgress = 0f
+        val ok = TermuxBootstrap.downloadAndInstall(
+            filesDir = app.filesDir,
+            cacheDir = app.cacheDir,
+            onProgress = { bootstrapProgress = it },
+            onLog = { log.add(it) }
+        )
+        bootstrapState = if (ok) InstallState.DONE else InstallState.FAILED
+        if (ok) bootstrapProgress = 1f
+        return ok
     }
 
     /**
@@ -146,7 +190,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Ayan Agent চালাতে নিচের টুলগুলো ইনস্টল হচ্ছে।",
+            text = "প্রথমে Termux runtime (~30 MB, একবার) ডাউনলোড হবে — WiFi ব্যবহার করুন। তারপর নিচের টুলগুলো ইনস্টল হবে।",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -164,6 +208,15 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Termux runtime (bootstrap) installs first — the `pkg` installs below need it.
+            item {
+                RuntimeRow(
+                    item = RuntimeItem("bootstrap", "Termux runtime", "bootstrap", ""),
+                    state = vm.bootstrapState,
+                    progress = vm.bootstrapProgress,
+                    onRetry = { vm.retryBootstrap() }
+                )
+            }
             items(Runtimes.all) { item ->
                 RuntimeRow(
                     item = item,

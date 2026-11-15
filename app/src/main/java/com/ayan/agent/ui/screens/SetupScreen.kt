@@ -136,12 +136,19 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         fun hasStorageAccess(context: Context): Boolean {
-            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.READ_EXTERNAL_STORAGE
-                ) == PackageManager.PERMISSION_GRANTED
+            // Guarded: isExternalStorageManager() throws on some
+            // environments (e.g. Robolectric, where the underlying
+            // storage state is absent) — treat that as "not granted".
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Environment.isExternalStorageManager()
+                } else {
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.READ_EXTERNAL_STORAGE
+                    ) == PackageManager.PERMISSION_GRANTED
+                }
+            } catch (e: Exception) {
+                false
             }
         }
     }

@@ -199,7 +199,7 @@ fun SetupScreen(onSetupComplete: () -> Unit) {
         if (vm.pkgMissing) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "এই ফোনে Termux ইনস্টল নেই, তাই `pkg` দিয়ে টুল ইনস্টল হবে না। চ্যাট এজেন্ট চালাতে এগুলো লাগবে না — নিচে \"এড়িয়ে যান\" চাপলে সরাসরি Home-এ যাওয়া যাবে।",
+                text = "Termux runtime এখনো চালু হয়নি, তাই `pkg` দিয়ে টুল ইনস্টল হচ্ছে না। Bootstrap ইনস্টল হয়ে গেলে প্রত্যেকটার পাশের retry চাপো, বা নিচে \"এড়িয়ে যান\" চাপলে পরে করা যাবে।",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error
             )

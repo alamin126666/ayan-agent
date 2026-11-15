@@ -1,7 +1,9 @@
 package com.ayan.agent.data
 
 import android.content.Context
+import android.os.Build
 import java.io.File
+import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,21 +41,65 @@ object ProotSession {
     )
 
     /**
-     * The proot executable, copied out of the APK's native libs into the
-     * app's private files dir (where it can be executed) on first use.
-     * Returns null when the binary is not shipped for this ABI.
+     * The proot executable, copied into the app's private files dir (where
+     * it can be executed) on first use. Returns null when the binary is not
+     * shipped for this ABI.
+     *
+     * Two sources, in order: (1) the extracted native libs dir — only
+     * populated when the app is installed with legacy packaging; (2) the
+     * APK zip itself. AGP's default packaging keeps `.so` files *inside*
+     * the APK (they are loaded from there, never extracted), so on a real
+     * phone (1) is empty and only (2) works — that is why installs failed
+     * with NO_PKG_MANAGER even though the bootstrap was installed.
      */
     fun installedBinary(context: Context): File? {
-        val src = File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
-        if (!src.exists()) return null
         val dest = File(context.filesDir, "proot")
-        if (!dest.exists() || dest.length() != src.length()) {
-            src.copyTo(dest, overwrite = true)
-            dest.setReadable(true, true)
-            dest.setWritable(true, true)
-            dest.setExecutable(true, true)
+        // Already extracted and executable — reuse it.
+        if (dest.exists() && dest.canExecute()) return dest
+        // (1) Extracted native libs dir.
+        val fromLibDir = File(context.applicationInfo.nativeLibraryDir, "libproot_exec.so")
+        if (fromLibDir.exists()) {
+            if (!dest.exists() || dest.length() != fromLibDir.length()) {
+                fromLibDir.copyTo(dest, overwrite = true)
+                makeExecutable(dest)
+            }
+            if (dest.canExecute()) return dest
         }
-        return if (dest.canExecute()) dest else null
+        // (2) Straight out of the APK zip, for this device's ABI.
+        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: return null
+        if (extractFromApk(context.applicationInfo.sourceDir, abi, dest)) {
+            return if (dest.canExecute()) dest else null
+        }
+        return null
+    }
+
+    private fun makeExecutable(file: File) {
+        file.setReadable(true, true)
+        file.setWritable(true, true)
+        file.setExecutable(true, true)
+    }
+
+    /**
+     * Extracts `lib/<abi>/libproot_exec.so` from an APK zip into [dest]
+     * and marks it executable. False when the entry is missing or unreadable.
+     */
+    internal fun extractFromApk(apkPath: String, abi: String, dest: File): Boolean {
+        return try {
+            ZipFile(apkPath).use { zip ->
+                val entry = zip.getEntry("lib/$abi/libproot_exec.so") ?: return false
+                if (dest.exists() && dest.length() == entry.size) {
+                    makeExecutable(dest)
+                    return dest.canExecute()
+                }
+                zip.getInputStream(entry).use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            makeExecutable(dest)
+            dest.canExecute()
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun isAvailable(context: Context): Boolean =

@@ -96,6 +96,31 @@ class ProotSessionTest {
     }
 
     @Test
+    fun extractFromApkPullsProotForAbi() {
+        // A fake APK zip holding lib/arm64-v8a/libproot_exec.so.
+        val apk = File.createTempFile("fake-apk", ".apk")
+        java.util.zip.ZipOutputStream(apk.outputStream()).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("lib/arm64-v8a/libproot_exec.so"))
+            zip.write("#!/bin/sh\necho proot".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(java.util.zip.ZipEntry("lib/x86_64/libproot_exec.so"))
+            zip.write("x86".toByteArray())
+            zip.closeEntry()
+        }
+        val dest = File.createTempFile("proot-out", ".bin")
+        dest.delete()
+        assertTrue(ProotSession.extractFromApk(apk.absolutePath, "arm64-v8a", dest))
+        assertTrue(dest.exists())
+        assertTrue(dest.canExecute())
+        assertEquals("#!/bin/sh\necho proot", dest.readText())
+        // A missing ABI entry returns false instead of crashing.
+        val missing = File.createTempFile("proot-missing", ".bin")
+        missing.delete()
+        assertFalse(ProotSession.extractFromApk(apk.absolutePath, "armeabi-v7a", missing))
+        assertFalse(missing.exists())
+    }
+
+    @Test
     fun guestEnvHasTermuxPathsAndNoLoaderVars() {
         val env = ProotSession.guestEnv(filesDir())
         assertEquals("/data/data/com.termux/files/usr", env["PREFIX"])
